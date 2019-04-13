@@ -1,0 +1,166 @@
+---
+title: "Exploring the NOAA Storm Database"
+author: "Jeferson Santos Monteiro"
+date: "12 de abril de 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+The purpose of the report is to demonstrate the most severe weather events that have caused the worst consequences on the healthy and economical population in the United States from 1950 to 2011. Based on the National Oceanic and Atmospheric Administration (NOAA) Storm Data. In the results of the analysis it was identified that the hurricane is the most harmful event for health, for the economy the floods cause more negative consequences.
+
+## Data Processing
+
+The __R__ was used with the `package: dplyr`, for the analysis. The code is reported below with the respective outputs. The code for producing this document was written in __R Markdown__.
+
+```{r}
+
+library(dplyr)                      #Tool for data frame
+
+```
+
+Configuration of the system
+
+```{r}
+
+sessionInfo()
+
+```
+
+
+
+### Loading and processing Data
+
+Data are stored in the standard *comma-separated-value* format, compress with *bzip2* algorithm.
+
+```{r cache=TRUE}
+
+storm.data <-read.csv("repdata_data_StormData.csv.bz2",header=TRUE)
+
+```
+
+### Selecting data
+
+After loading the data, a table is created to view the information. 
+
+They become names in  *compatibility names* for R and for applications which do not allow *underline* in names.
+
+```{r cache=TRUE}
+
+storm <- tbl_df(storm.data)                                # create table for data
+
+names(storm) <- make.names(names(storm), allow_ = FALSE)   # compatibility names
+
+print(storm)                                               # read the data 
+
+```
+
+There were `r dim(storm)[1]` total observations with `r dim(storm)[2]` variables.
+
+The variables  interested in are the __type of event__ (`EVTYPE`), __fatalities__ (`FATALITIES`) and __injuries__ (`INJURIES`) and those describing the __ammount of damage__ (all fields including `DMG`). Extract the variables and print a sample of ten cases to watch them togheter.
+
+```{r}
+
+use.storm <- storm %>%                                              # from strom
+  
+        select(EVTYPE, FATALITIES, INJURIES,                        # select explicit variables
+               
+               contains("DMG"))                                     # and the ones containing "DMG"
+
+set.seed(1304)                                                      # set seed
+
+sample_n(use.storm,10)                                              # print a random sample of 10 rows
+```
+
+
+## Results
+
+### In the United States, which types of events are most harmful with respect to population health?
+
+To reach the objective, only the variables related to the type of event, fatalities and injuries are selected. Subsequently the total amount of both events is considered, then the sum of the deaths and injuries is considered and each event is classified according to what happened, deaths, injuries and the sum of both. Then the first ten events are shown, of total injuries and deaths.
+
+```{r cache=TRUE}
+health.storm <- use.storm %>%                                   
+                select(EVTYPE, FATALITIES, INJURIES) %>% 
+                group_by(EVTYPE) %>%        
+                summarise_each(funs(sum)) %>% 
+                mutate(TOT.HARMFUL=FATALITIES + INJURIES, 
+                       RK.FAT=dense_rank(desc(FATALITIES)),
+                       RK.INJ=dense_rank(desc(INJURIES)),
+                       RK.TOT=dense_rank(desc(TOT.HARMFUL))) %>%
+                arrange(desc(TOT.HARMFUL),                
+                        desc(FATALITIES),
+                        desc(INJURIES))
+health.storm                                                        
+barplot(t(as.matrix(health.storm[1:10,4:2])),
+        main = "First 10 most harmful events wrt polulation healt",      
+        names.arg = health.storm$EVTYPE[1:10],     
+        las=3,                         
+        cex.names = 0.45,            
+        ylab = "People death/injuried",                               
+        beside = TRUE,      
+        col = terrain.colors(5))                                 
+legend(20,50000,c("Total", "Injuried", "Fatalities"),                   
+       fill = terrain.colors(5))          
+```
+
+It is obvious considered cases, only fatalities, injuries or the sum of both:
+__*tornado is the most harmful event wrt population healt__.
+
+### Which types of events have the greatest economic consequences?
+
+In order to find the event with the greatest economic consequences, first select only the variable of the data set referring to the type of event and those that report the damages. With greater detail, property damage and crop damage are calculated by calculating the amount of damage caused by events. Subsequently, the events are classified for the types of damages and for the total of them. Following is the first ten events that classify the total economic consequences.
+
+```{r cache=TRUE}
+PROP.storm <- use.storm %>%                                     
+                select(EVTYPE, starts_with("PROP")) %>%   
+                group_by(EVTYPE, PROPDMGEXP) %>%    
+                summarize(DAMAGE.SET=sum(PROPDMG)) %>%
+                mutate(                     
+                        PROPDAMAGE=ifelse(PROPDMGEXP=="K",             
+                                     DAMAGE.SET*(10^3),
+                                ifelse(PROPDMGEXP=="M",               
+                                       DAMAGE.SET*(10^6),
+                                ifelse(PROPDMGEXP=="B",                 
+                                       DAMAGE.SET*(10^9),
+                                DAMAGE.SET)))) %>%        
+                summarise(TOTPROPDMG=sum(PROPDAMAGE))
+CROP.storm <- use.storm %>%                                   
+                select(EVTYPE, starts_with("CROP")) %>%
+                group_by(EVTYPE, CROPDMGEXP) %>% 
+                summarize(DAMAGE.SET=sum(CROPDMG)) %>% 
+                mutate(CROPDAMAGE=ifelse(CROPDMGEXP=="K",
+                                     DAMAGE.SET*(10^3),
+                                ifelse(CROPDMGEXP=="M",
+                                       DAMAGE.SET*(10^6),
+                                ifelse(CROPDMGEXP=="B",
+                                       DAMAGE.SET*(10^9),
+                                DAMAGE.SET)))) %>%
+                summarise(TOTCROPDMG=sum(CROPDAMAGE))
+DMG.storm <- full_join(PROP.storm,CROP.storm) %>%                
+                mutate(TOTDMG=TOTPROPDMG + TOTCROPDMG,     
+                       RK.PROP=dense_rank(desc(TOTPROPDMG)),        
+                       RK.CROP=dense_rank(desc(TOTCROPDMG)),
+                       RK.DMG=dense_rank(desc(TOTDMG))) %>%
+                arrange(desc(TOTDMG))            
+DMG.storm %>% print(width = Inf)                       
+barplot(t(as.matrix(DMG.storm[1:10,c(4,2,3)])),          
+        main = "First 10 events with greatest economic consequences",
+        names.arg = DMG.storm$EVTYPE[1:10],
+        las=3,
+        cex.names = 0.45,
+        ylab = "Damage in US $",
+        beside = TRUE,
+        col = terrain.colors(5))
+legend(20,80000000000,c("Total", "Property", "Crop"),
+       fill = terrain.colors(5))
+```
+
+This is one events that clearly is the worst one. In this case it is not the tornado, but the  _Flood is the events with the greatest economic consequences_.
+
